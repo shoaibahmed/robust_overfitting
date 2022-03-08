@@ -34,29 +34,29 @@
 # parser.add_argument('--use-probes', action='store_true')
 # parser.add_argument('--chkpt-iters', default=10, type=int)
 
-# srun -p A100 -K -N1 --ntasks-per-node=1 --gpus-per-task=1 --cpus-per-gpu=4 --mem=24G \
-#         --kill-on-bad-exit --job-name cifar10-adv --nice=0 --time=3-00:00:00 \
-#         --container-mounts=/netscratch:/netscratch,/ds:/ds,/home/siddiqui:/home/siddiqui --container-image=/netscratch/enroot/nvcr.io_nvidia_pytorch_21.06-py3.sqsh \
-#         --container-workdir=`pwd` --container-mount-home --export="NCCL_SOCKET_IFNAME=bond,NCCL_IB_HCA=mlx5" \
-#         /opt/conda/bin/python /netscratch/siddiqui/Repositories/robust_overfitting/train_cifar_probes.py --data-dir /netscratch/siddiqui/Repositories/data/cifar10/ \
-#             --attack='pgd' --attack-iters=10 --batch-size=128 --epochs=200 --epsilon=8 --fgsm-alpha=1 --fgsm-init='random' \
-#             --fname='experiments/cifar10_probe/preactresnet18' --lr-schedule='piecewise' --model='PreActResNet18' --norm='l_inf' \
-#             --pgd-alpha=2 --restarts=1 --resume=0 --seed=0 --width-factor=10 > /netscratch/siddiqui/Repositories/robust_overfitting/logs/cifar10.log 2>&1 &
-
-# srun -p A100 -K -N1 --ntasks-per-node=1 --gpus-per-task=1 --cpus-per-gpu=4 --mem=24G \
-#         --kill-on-bad-exit --job-name cifar10-probe-adv --nice=0 --time=3-00:00:00 \
-#         --container-mounts=/netscratch:/netscratch,/ds:/ds,/home/siddiqui:/home/siddiqui --container-image=/netscratch/enroot/nvcr.io_nvidia_pytorch_21.06-py3.sqsh \
-#         --container-workdir=`pwd` --container-mount-home --export="NCCL_SOCKET_IFNAME=bond,NCCL_IB_HCA=mlx5" \
-#         /opt/conda/bin/python /netscratch/siddiqui/Repositories/robust_overfitting/train_cifar_probes.py --data-dir /netscratch/siddiqui/Repositories/data/cifar10/ \
-#             --attack='pgd' --attack-iters=10 --batch-size=128 --epochs=200 --epsilon=8 --fgsm-alpha=1 --fgsm-init='random' \
-#             --fname='experiments/cifar10_probe/preactresnet18_probe' --lr-schedule='piecewise' --model='PreActResNet18' --norm='l_inf' \
-#             --pgd-alpha=2 --restarts=1 --resume=0 --seed=0 --width-factor=10 --use-probes > /netscratch/siddiqui/Repositories/robust_overfitting/logs/cifar10_probes.log 2>&1 &
-
 srun -p A100 -K -N1 --ntasks-per-node=1 --gpus-per-task=1 --cpus-per-gpu=4 --mem=24G \
-        --kill-on-bad-exit --job-name cifar10-val-gen --nice=0 --time=3-00:00:00 \
+        --kill-on-bad-exit --job-name cifar10-adv --nice=0 --time=3-00:00:00 \
         --container-mounts=/netscratch:/netscratch,/ds:/ds,/home/siddiqui:/home/siddiqui --container-image=/netscratch/enroot/nvcr.io_nvidia_pytorch_21.06-py3.sqsh \
         --container-workdir=`pwd` --container-mount-home --export="NCCL_SOCKET_IFNAME=bond,NCCL_IB_HCA=mlx5" \
-        /opt/conda/bin/python /netscratch/siddiqui/Repositories/robust_overfitting/generate_validation.py
+        /opt/conda/bin/python /netscratch/siddiqui/Repositories/robust_overfitting/train_cifar_probes.py --data-dir /netscratch/siddiqui/Repositories/data/cifar10/ \
+            --attack='pgd' --attack-iters=10 --batch-size=128 --epochs=200 --epsilon=8 --fgsm-alpha=1 --fgsm-init='random' \
+            --fname='experiments/cifar10_probe/preactresnet18' --lr-schedule='piecewise' --model='PreActResNet18' --norm='l_inf' \
+            --pgd-alpha=2 --restarts=1 --resume=0 --seed=0 --width-factor=10 > /netscratch/siddiqui/Repositories/robust_overfitting/logs/cifar10.log 2>&1 &
+
+srun -p A100 -K -N1 --ntasks-per-node=1 --gpus-per-task=1 --cpus-per-gpu=4 --mem=24G \
+        --kill-on-bad-exit --job-name cifar10-probe-adv --nice=0 --time=3-00:00:00 \
+        --container-mounts=/netscratch:/netscratch,/ds:/ds,/home/siddiqui:/home/siddiqui --container-image=/netscratch/enroot/nvcr.io_nvidia_pytorch_21.06-py3.sqsh \
+        --container-workdir=`pwd` --container-mount-home --export="NCCL_SOCKET_IFNAME=bond,NCCL_IB_HCA=mlx5" \
+        /opt/conda/bin/python /netscratch/siddiqui/Repositories/robust_overfitting/train_cifar_probes.py --data-dir /netscratch/siddiqui/Repositories/data/cifar10/ \
+            --attack='pgd' --attack-iters=10 --batch-size=128 --epochs=200 --epsilon=8 --fgsm-alpha=1 --fgsm-init='random' \
+            --fname='experiments/cifar10_probe/preactresnet18_probe' --lr-schedule='piecewise' --model='PreActResNet18' --norm='l_inf' \
+            --pgd-alpha=2 --restarts=1 --resume=0 --seed=0 --width-factor=10 --use-probes > /netscratch/siddiqui/Repositories/robust_overfitting/logs/cifar10_probes.log 2>&1 &
+
+# srun -p A100 -K -N1 --ntasks-per-node=1 --gpus-per-task=1 --cpus-per-gpu=4 --mem=24G \
+#         --kill-on-bad-exit --job-name cifar10-val-gen --nice=0 --time=3-00:00:00 \
+#         --container-mounts=/netscratch:/netscratch,/ds:/ds,/home/siddiqui:/home/siddiqui --container-image=/netscratch/enroot/nvcr.io_nvidia_pytorch_21.06-py3.sqsh \
+#         --container-workdir=`pwd` --container-mount-home --export="NCCL_SOCKET_IFNAME=bond,NCCL_IB_HCA=mlx5" \
+#         /opt/conda/bin/python /netscratch/siddiqui/Repositories/robust_overfitting/generate_validation.py
 
 srun -p A100 -K -N1 --ntasks-per-node=1 --gpus-per-task=1 --cpus-per-gpu=4 --mem=24G \
         --kill-on-bad-exit --job-name cifar10-val-adv --nice=0 --time=3-00:00:00 \
