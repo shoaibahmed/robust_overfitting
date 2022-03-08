@@ -275,7 +275,7 @@ def main():
         # probe_labels = torch.cat([probes["noisy_labels"]], dim=0)
         probe_images = probes["noisy"]
         probe_labels = probes["noisy_labels"]
-        # probe_dataset_standard = CustomTensorDataset(probe_images.to("cpu"), [int(x) for x in probe_labels.to("cpu").numpy().tolist()])
+        # probe_dataset_standard = CustomTensorDataset(probe_images.from_numpy(probes["noisy"]), [int(x) for x in probe_labels.to("cpu").numpy().tolist()])
         # comb_trainset = torch.utils.data.ConcatDataset([train_set_x, probe_dataset_standard])
         
         # probe_identity = ["noisy_probe" for _ in range(len(probe_images))]
@@ -306,8 +306,12 @@ def main():
         # print(f"Number of examples in dataset: {sum([len(train_batches[i][0]) for i in range(len(train_batches))])}")
         print(f"Number of examples in dataset: {sum([len(out['input']) for out in train_batches])}")
         print(f"Number of examples in probe dataset: {sum([len(out['input']) for out in train_batches_probe])}")
-
+        
         train_batches = train_batches_probe
+        
+        # For evaluation
+        probes["noisy"] = torch.from_numpy(probes["noisy"]).to(device)
+        probes["noisy_labels"] = torch.tensor(probes["noisy_labels"]).to(device)
 
     test_set = list(zip(transpose(dataset['test']['data']/255.), dataset['test']['labels']))
     test_batches = Batches(test_set, args.batch_size, shuffle=False, num_workers=2)
@@ -564,23 +568,24 @@ def main():
                 test_loss/test_n, test_acc/test_n, test_robust_loss/test_n, test_robust_acc/test_n)
             return
         
-        noisy_stats = test_tensor(model, probes["noisy"], probes["noisy_labels"], msg="Noisy probe")
-        if current_loss_thresh is None:
-            if float(noisy_stats["acc"]) > threshold:
-                print(f"Noisy data accuracy ({noisy_stats['acc']}%) exceeded threshold ({threshold}%). Increasing tolerance counter...")
-                current_iter += 1
-                if current_iter >= tolerance:
-                    # current_loss_thresh = noisy_stats["loss"] * 0.8  # 80% of the average loss on the noisy probes
-                    current_loss_thresh = noisy_stats["loss"]  # average loss on the noisy probes
-                    print(f"Terminating model training...")
-                    torch.save({
-                        'state_dict':model.state_dict(),
-                        'test_robust_acc':test_robust_acc/test_n,
-                        'test_robust_loss':test_robust_loss/test_n,
-                        'test_loss':test_loss/test_n,
-                        'test_acc':test_acc/test_n,
-                    }, os.path.join(args.fname, f'model_probe_stop.pth'))
-                    exit()
+        if args.use_probes:
+            noisy_stats = test_tensor(model, probes["noisy"], probes["noisy_labels"], msg="Noisy probe")
+            if current_loss_thresh is None:
+                if float(noisy_stats["acc"]) > threshold:
+                    print(f"Noisy data accuracy ({noisy_stats['acc']}%) exceeded threshold ({threshold}%). Increasing tolerance counter...")
+                    current_iter += 1
+                    if current_iter >= tolerance:
+                        # current_loss_thresh = noisy_stats["loss"] * 0.8  # 80% of the average loss on the noisy probes
+                        current_loss_thresh = noisy_stats["loss"]  # average loss on the noisy probes
+                        print(f"Terminating model training...")
+                        torch.save({
+                            'state_dict':model.state_dict(),
+                            'test_robust_acc':test_robust_acc/test_n,
+                            'test_robust_loss':test_robust_loss/test_n,
+                            'test_loss':test_loss/test_n,
+                            'test_acc':test_acc/test_n,
+                        }, os.path.join(args.fname, f'model_probe_stop.pth'))
+                        exit()
 
 
 if __name__ == "__main__":
