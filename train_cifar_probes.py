@@ -260,12 +260,16 @@ def main():
         print("Using probes during model training...")
         
         probes = {}
-        padding = 4
-        tensor_shape = (3, 32 + 2*padding, 32 + 2*padding)  # For both CIFAR-10/100
-        num_example_probes = 250  # 0.5% of the dataset
+        # padding = 4
+        # tensor_shape = (3, 32 + 2*padding, 32 + 2*padding)  # For both CIFAR-10/100
+        # tensor_shape = (3, 32, 32)  # For both CIFAR-10/100
+        tensor_shape = (32, 32, 3)  # For both CIFAR-10/100
+        # num_example_probes = 250  # 0.5% of the dataset
+        num_example_probes = 1000  # 0.5% of the dataset
         
         # probes["noisy"] = torch.clamp(torch.randn(num_example_probes, *tensor_shape), 0., 1.)
-        probes["noisy"] = torch.empty(num_example_probes, *tensor_shape).uniform_(0., 1.)
+        # probes["noisy"] = torch.empty(num_example_probes, *tensor_shape).uniform_(0., 1.)
+        probes["noisy"] = torch.empty(num_example_probes, *tensor_shape).uniform_(0, 255).to(torch.uint8)
         # probes["noisy"] = probes["noisy"].to(device)
         probes["noisy"] = probes["noisy"].numpy()
         # probes["noisy_labels"] = torch.randint(0, num_classes, (num_example_probes,)).to(device)
@@ -292,7 +296,8 @@ def main():
         # clean_train_instances = np.sum([1 if dataset_probe_identity[i] == "train_clean" else 0 for i in range(len(idx_dataset))])
         # print(f"Total instances: {total_instances} / Noisy probe instances: {noisy_probe_instances} / Noisy train instances: {noisy_train_instances} / Clean train instances: {clean_train_instances}")
     
-        probe_train_set = list(zip(probe_images, probe_labels))
+        # probe_train_set = list(zip(probe_images, probe_labels))
+        probe_train_set = list(zip(transpose(pad(probe_images, 4)/255.), probe_labels))
         comb_train_set = train_set + probe_train_set
         
         comb_train_set_x = Transform(comb_train_set, transforms)
@@ -310,7 +315,10 @@ def main():
         train_batches = train_batches_probe
         
         # For evaluation
-        probes["noisy"] = torch.from_numpy(probes["noisy"]).to(device)
+        assert probes["noisy"].dtype == np.uint8
+        probes["noisy"] = probes["noisy"].transpose(0, 3, 1, 2) / 255.
+        assert probes["noisy"].min() >= 0. and probes["noisy"].max() <= 1.
+        probes["noisy"] = torch.from_numpy(probes["noisy"]).to(torch.float32).to(device)
         probes["noisy_labels"] = torch.tensor(probes["noisy_labels"]).to(device)
 
     test_set = list(zip(transpose(dataset['test']['data']/255.), dataset['test']['labels']))
