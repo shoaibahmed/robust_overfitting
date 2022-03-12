@@ -189,7 +189,7 @@ def test_tensor(model, data, target, msg=None):
     
     model.eval()
     with torch.no_grad():
-        output = model(data)
+        output = model(normalize(data))  # Normalization is essential
         loss_vals = criterion(output, target)
         test_loss = float(loss_vals.mean())
         pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
