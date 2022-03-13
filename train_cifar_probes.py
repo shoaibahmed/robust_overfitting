@@ -265,20 +265,64 @@ def main():
         # tensor_shape = (3, 32, 32)  # For both CIFAR-10/100
         tensor_shape = (32, 32, 3)  # For both CIFAR-10/100
         # num_example_probes = 250  # 0.5% of the dataset
-        num_example_probes = 1000  # 0.5% of the dataset
+        num_example_probes = 10000  # 0.5% of the dataset
         
         # probes["noisy"] = torch.clamp(torch.randn(num_example_probes, *tensor_shape), 0., 1.)
         # probes["noisy"] = torch.empty(num_example_probes, *tensor_shape).uniform_(0., 1.)
         probes["noisy"] = torch.empty(num_example_probes, *tensor_shape).uniform_(0, 255).to(torch.uint8)
         # probes["noisy"] = probes["noisy"].to(device)
+        
+        def plot_tensor(x, y, output_file):
+            assert len(x.shape) == 4
+            if isinstance(x, torch.Tensor):
+                assert x.dtype == torch.float32
+                assert x.shape[1] == 3
+                x = x.detach().cpu().numpy().transpose(0, 2, 3, 1)
+                x = np.clip(x * 255, 0, 255).astype(np.uint8)
+            else:
+                assert isinstance(x, np.ndarray)
+            
+            assert x.dtype == np.uint8
+            assert x.shape[-1] == 3
+            
+            import matplotlib.pyplot as plt
+            
+            num_plots_per_row = 3
+            plot_rows = 3
+            plot_size = 3
+            fig, ax = plt.subplots(plot_rows, num_plots_per_row, figsize=(plot_size * num_plots_per_row, plot_size * plot_rows), sharex=True, sharey=True)
+            
+            for idx in range(len(x)):
+                ax[idx // num_plots_per_row, idx % num_plots_per_row].imshow(x[idx], cmap=None)
+                ax[idx // num_plots_per_row, idx % num_plots_per_row].set_title(f"Label: {y[idx]}", color='r')
+
+                if idx == plot_rows * num_plots_per_row - 1:
+                    break
+
+            for a in ax.ravel():
+                a.set_axis_off()
+
+                # Turn off tick labels
+                a.set_yticklabels([])
+                a.set_xticklabels([])
+
+            fig.tight_layout()
+            if output_file is not None:
+                fig.savefig(output_file, bbox_inches=0.0, pad_inches=0)
+            plt.show()
+            plt.close()
+        
         probes["noisy"] = probes["noisy"].numpy()
         # probes["noisy_labels"] = torch.randint(0, num_classes, (num_example_probes,)).to(device)
         probes["noisy_labels"] = torch.randint(0, num_classes, (num_example_probes,)).numpy().tolist()
         
+        # Test a few examples
+        plot_tensor(probes["noisy"], probes["noisy_labels"], output_file="noise_probes.png")
+        
         # probe_images = torch.cat([probes["noisy"]], dim=0)
         # probe_labels = torch.cat([probes["noisy_labels"]], dim=0)
-        probe_images = probes["noisy"]
-        probe_labels = probes["noisy_labels"]
+        probe_images = probes["noisy"].copy()
+        probe_labels = probes["noisy_labels"].copy()
         # probe_dataset_standard = CustomTensorDataset(probe_images.from_numpy(probes["noisy"]), [int(x) for x in probe_labels.to("cpu").numpy().tolist()])
         # comb_trainset = torch.utils.data.ConcatDataset([train_set_x, probe_dataset_standard])
         
@@ -316,11 +360,14 @@ def main():
         
         # For evaluation
         assert probes["noisy"].dtype == np.uint8
-        probes["noisy"] = probes["noisy"].transpose(0, 3, 1, 2) / 255.
+        probes["noisy"] = probes["noisy"].transpose(0, 3, 1, 2).astype(np.float32) / 255.
         assert probes["noisy"].min() >= 0. and probes["noisy"].max() <= 1.
-        probes["noisy"] = torch.from_numpy(probes["noisy"]).to(torch.float32).to(device)
+        probes["noisy"] = torch.from_numpy(probes["noisy"]).to(device)
         probes["noisy_labels"] = torch.tensor(probes["noisy_labels"]).to(device)
-
+        
+        # Test a few examples
+        plot_tensor(probes["noisy"], probes["noisy_labels"], output_file="noise_probes_2.png")
+    
     test_set = list(zip(transpose(dataset['test']['data']/255.), dataset['test']['labels']))
     test_batches = Batches(test_set, args.batch_size, shuffle=False, num_workers=2)
 
