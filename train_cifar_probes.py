@@ -307,7 +307,7 @@ def main():
     train_set_x = Transform(train_set, transforms)
     train_batches = Batches(train_set_x, args.batch_size, shuffle=True, set_random_choices=True, num_workers=2)
     
-    threshold = 20
+    threshold = 90
     tolerance = 1
     current_iter = 0
     current_loss_thresh = None
