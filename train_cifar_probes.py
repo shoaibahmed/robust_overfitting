@@ -10,6 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
+import matplotlib.pyplot as plt
+
 import os
 
 from wideresnet import WideResNet
@@ -123,6 +125,50 @@ def attack_pgd(model, X, y, epsilon, alpha, attack_iters, restarts,
     return max_delta
 
 
+def plot_tensor(x, y, classes, output_file):
+    assert len(x.shape) == 4
+    if isinstance(x, torch.Tensor):
+        assert x.dtype == torch.float32
+        assert x.shape[1] == 3
+        x = x.detach().cpu().numpy().transpose(0, 2, 3, 1)
+        x = np.clip(x * 255, 0, 255).astype(np.uint8)
+    else:
+        assert isinstance(x, np.ndarray)
+    if x.dtype in [np.float32, np.float64]:
+        assert x.max() <= 1.
+        x = np.clip(x * 255, 0, 255).astype(np.uint8)
+    if x.shape[1] == 3:
+        x = np.transpose(x, (0, 2, 3, 1))
+    
+    assert x.dtype == np.uint8, x.dtype
+    assert x.shape[-1] == 3, x.shape
+    
+    num_plots_per_row = 3
+    plot_rows = 3
+    plot_size = 3
+    fig, ax = plt.subplots(plot_rows, num_plots_per_row, figsize=(plot_size * num_plots_per_row, plot_size * plot_rows), sharex=True, sharey=True)
+    
+    for idx in range(len(x)):
+        ax[idx // num_plots_per_row, idx % num_plots_per_row].imshow(x[idx], cmap=None)
+        ax[idx // num_plots_per_row, idx % num_plots_per_row].set_title(f"Label: {classes[y[idx]]}", color='r')
+
+        if idx == plot_rows * num_plots_per_row - 1:
+            break
+
+    for a in ax.ravel():
+        a.set_axis_off()
+
+        # Turn off tick labels
+        a.set_yticklabels([])
+        a.set_xticklabels([])
+
+    fig.tight_layout()
+    if output_file is not None:
+        fig.savefig(output_file, bbox_inches=0.0, pad_inches=0)
+    plt.show()
+    plt.close()
+
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', default='PreActResNet18')
@@ -155,6 +201,7 @@ def get_args():
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--val', action='store_true')
     parser.add_argument('--use-probes', action='store_true')
+    parser.add_argument('--use-corrupted-probe', action='store_true')
     parser.add_argument('--chkpt-iters', default=10, type=int)
     return parser.parse_args()
 
@@ -208,6 +255,7 @@ def test_tensor(model, data, target, msg=None):
 
 def main():
     args = get_args()
+    assert not args.use_corrupted_probe or args.use_probes
 
     if not os.path.exists(args.fname):
         os.makedirs(args.fname)
@@ -227,6 +275,10 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
+    
+    tensor_shape = (32, 32, 3)  # For both CIFAR-10/100
+    num_example_probes = 250  # 0.5% of the dataset
+    corrupted_examples = None
 
     transforms = [Crop(32, 32), FlipLR()]
     if args.cutout:
@@ -244,104 +296,49 @@ def main():
         dataset = cifar10(args.data_dir)
     train_set = list(zip(transpose(pad(dataset['train']['data'], 4)/255.),
         dataset['train']['labels']))
+    if args.use_corrupted_probe:
+        assert args.use_probes
+        print(f"Training set size: {len(train_set)}")
+        probe_indices = np.random.choice(np.arange(len(train_set)), size=(num_example_probes,), replace=False)
+        print("Selected indices:", probe_indices[:5])
+        corrupted_examples = [train_set[i] for i in probe_indices]
+        train_set = [train_set[i] for i in range(len(train_set)) if i not in probe_indices]
+        print(f"Training set size after removing probe example indices: {len(train_set)}")
     train_set_x = Transform(train_set, transforms)
     train_batches = Batches(train_set_x, args.batch_size, shuffle=True, set_random_choices=True, num_workers=2)
     
     threshold = 20
-    tolerance = 2
+    tolerance = 1
     current_iter = 0
     current_loss_thresh = None
-    # num_classes = len(dataset.classes)
     num_classes = len(np.unique(dataset['train']['labels']))
     assert num_classes == 10, "CIFAR-10 should have 10 classes"
     train_batches_probe = None
     
     if args.use_probes:
-        print("Using probes during model training...")
-        
         probes = {}
-        # padding = 4
-        # tensor_shape = (3, 32 + 2*padding, 32 + 2*padding)  # For both CIFAR-10/100
-        # tensor_shape = (3, 32, 32)  # For both CIFAR-10/100
-        tensor_shape = (32, 32, 3)  # For both CIFAR-10/100
-        # num_example_probes = 250  # 0.5% of the dataset
-        num_example_probes = 10000  # 0.5% of the dataset
-        
-        # probes["noisy"] = torch.clamp(torch.randn(num_example_probes, *tensor_shape), 0., 1.)
-        # probes["noisy"] = torch.empty(num_example_probes, *tensor_shape).uniform_(0., 1.)
-        probes["noisy"] = torch.empty(num_example_probes, *tensor_shape).uniform_(0, 255).to(torch.uint8)
-        # probes["noisy"] = probes["noisy"].to(device)
-        
-        def plot_tensor(x, y, output_file):
-            assert len(x.shape) == 4
-            if isinstance(x, torch.Tensor):
-                assert x.dtype == torch.float32
-                assert x.shape[1] == 3
-                x = x.detach().cpu().numpy().transpose(0, 2, 3, 1)
-                x = np.clip(x * 255, 0, 255).astype(np.uint8)
-            else:
-                assert isinstance(x, np.ndarray)
-            
-            assert x.dtype == np.uint8
-            assert x.shape[-1] == 3
-            
-            import matplotlib.pyplot as plt
-            
-            num_plots_per_row = 3
-            plot_rows = 3
-            plot_size = 3
-            fig, ax = plt.subplots(plot_rows, num_plots_per_row, figsize=(plot_size * num_plots_per_row, plot_size * plot_rows), sharex=True, sharey=True)
-            
-            for idx in range(len(x)):
-                ax[idx // num_plots_per_row, idx % num_plots_per_row].imshow(x[idx], cmap=None)
-                ax[idx // num_plots_per_row, idx % num_plots_per_row].set_title(f"Label: {y[idx]}", color='r')
-
-                if idx == plot_rows * num_plots_per_row - 1:
-                    break
-
-            for a in ax.ravel():
-                a.set_axis_off()
-
-                # Turn off tick labels
-                a.set_yticklabels([])
-                a.set_xticklabels([])
-
-            fig.tight_layout()
-            if output_file is not None:
-                fig.savefig(output_file, bbox_inches=0.0, pad_inches=0)
-            plt.show()
-            plt.close()
-        
-        probes["noisy"] = probes["noisy"].numpy()
-        # probes["noisy_labels"] = torch.randint(0, num_classes, (num_example_probes,)).to(device)
-        probes["noisy_labels"] = torch.randint(0, num_classes, (num_example_probes,)).numpy().tolist()
+        if args.use_corrupted_probe:
+            noise_level = 0.1
+            print("Using corrupted probes during model training...")
+            assert corrupted_examples is not None
+            probes["noisy"] = np.stack([x[0] for x in corrupted_examples], axis=0)
+            print("Noisy example shape:", probes["noisy"].shape)
+            probes["noisy"] = np.clip(probes["noisy"] + np.random.randn(*probes["noisy"].shape) * noise_level, 0., 1.)
+            probes["noisy_labels"] = [x[1] for x in corrupted_examples]
+        else:
+            print("Using random input probes during model training...")
+            probes["noisy"] = torch.empty(num_example_probes, *tensor_shape).uniform_(0, 255).to(torch.uint8)
+            probes["noisy"] = probes["noisy"].numpy()
+            probes["noisy_labels"] = torch.randint(0, num_classes, (num_example_probes,)).numpy().tolist()
+            probe_images = transpose(probe_images/255.)
         
         # Test a few examples
-        plot_tensor(probes["noisy"], probes["noisy_labels"], output_file="noise_probes.png")
+        plot_tensor(probes["noisy"], probes["noisy_labels"], dataset["classes"], output_file="noise_probes.png")
         
-        # probe_images = torch.cat([probes["noisy"]], dim=0)
-        # probe_labels = torch.cat([probes["noisy_labels"]], dim=0)
         probe_images = probes["noisy"].copy()
         probe_labels = probes["noisy_labels"].copy()
-        # probe_dataset_standard = CustomTensorDataset(probe_images.from_numpy(probes["noisy"]), [int(x) for x in probe_labels.to("cpu").numpy().tolist()])
-        # comb_trainset = torch.utils.data.ConcatDataset([train_set_x, probe_dataset_standard])
         
-        # probe_identity = ["noisy_probe" for _ in range(len(probe_images))]
-        # dataset_probe_identity = ["train" for i in range(len(train_set_x))] + probe_identity
-        # assert len(dataset_probe_identity) == len(comb_trainset)
-        # print("Probe dataset:", len(comb_trainset), comb_trainset[0][0].shape)
-        
-        # idx_dataset = IdxDataset(comb_trainset, dataset_probe_identity)
-        # idx_train_loader = torch.utils.data.DataLoader(idx_dataset, batch_size=args.batch_size, shuffle=True, num_workers=1, pin_memory=True)
-        
-        # total_instances = len(idx_dataset)
-        # noisy_probe_instances = np.sum([1 if dataset_probe_identity[i] == "noisy_probe" else 0 for i in range(len(idx_dataset))])
-        # noisy_train_instances = np.sum([1 if dataset_probe_identity[i] == "train_noisy" else 0 for i in range(len(idx_dataset))])
-        # clean_train_instances = np.sum([1 if dataset_probe_identity[i] == "train_clean" else 0 for i in range(len(idx_dataset))])
-        # print(f"Total instances: {total_instances} / Noisy probe instances: {noisy_probe_instances} / Noisy train instances: {noisy_train_instances} / Clean train instances: {clean_train_instances}")
-    
-        # probe_train_set = list(zip(probe_images, probe_labels))
-        probe_train_set = list(zip(transpose(pad(probe_images, 4)/255.), probe_labels))
+        probe_train_set = list(zip(probe_images, probe_labels))
         comb_train_set = train_set + probe_train_set
         
         comb_train_set_x = Transform(comb_train_set, transforms)
@@ -350,23 +347,25 @@ def main():
         print("Train set:", len(train_set))
         print("Probe train set:", len(probe_train_set))
         print("Combined train set:", len(comb_train_set))
-    
-        # train_batches_probe = Batches(comb_trainset, args.batch_size, shuffle=True, set_random_choices=True, num_workers=2)
-        # print(f"Number of examples in dataset: {sum([len(train_batches[i][0]) for i in range(len(train_batches))])}")
+
         print(f"Number of examples in dataset: {sum([len(out['input']) for out in train_batches])}")
         print(f"Number of examples in probe dataset: {sum([len(out['input']) for out in train_batches_probe])}")
         
         train_batches = train_batches_probe
         
         # For evaluation
-        assert probes["noisy"].dtype == np.uint8
-        probes["noisy"] = probes["noisy"].transpose(0, 3, 1, 2).astype(np.float32) / 255.
+        if args.use_corrupted_probe:
+            probes["noisy"] = probes["noisy"][:, :, 4:-4, 4:-4].astype(np.float32)
+        else:
+            assert probes["noisy"].dtype == np.uint8
+            probes["noisy"] = probes["noisy"].transpose(0, 3, 1, 2).astype(np.float32) / 255.
         assert probes["noisy"].min() >= 0. and probes["noisy"].max() <= 1.
+        assert probes["noisy"].shape == (num_example_probes, *tensor_shape[::-1]), probes["noisy"].shape
         probes["noisy"] = torch.from_numpy(probes["noisy"]).to(device)
         probes["noisy_labels"] = torch.tensor(probes["noisy_labels"]).to(device)
         
         # Test a few examples
-        plot_tensor(probes["noisy"], probes["noisy_labels"], output_file="noise_probes_2.png")
+        plot_tensor(probes["noisy"], probes["noisy_labels"], dataset["classes"], output_file="noise_probes_2.png")
     
     test_set = list(zip(transpose(dataset['test']['data']/255.), dataset['test']['labels']))
     test_batches = Batches(test_set, args.batch_size, shuffle=False, num_workers=2)
