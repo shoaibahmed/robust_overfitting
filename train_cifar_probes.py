@@ -325,6 +325,7 @@ def main():
     else:
         assert args.dataset == "cifar100"
         assert num_classes == 100, "CIFAR-100 should have 100 classes"
+    print("Number of classes:", num_classes)
     train_batches_probe = None
     
     if args.use_probes:
