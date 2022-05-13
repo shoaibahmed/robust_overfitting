@@ -171,6 +171,7 @@ def plot_tensor(x, y, classes, output_file):
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', default='cifar10', choices=['cifar10', 'cifar100'])
     parser.add_argument('--model', default='PreActResNet18')
     parser.add_argument('--l2', default=0, type=float)
     parser.add_argument('--l1', default=0, type=float)
@@ -284,6 +285,7 @@ def main():
     if args.cutout:
         transforms.append(Cutout(args.cutout_len, args.cutout_len))
     if args.val:
+        assert args.dataset == "cifar10"
         try:
             dataset = torch.load("cifar10_validation_split.pth")
         except:
@@ -293,7 +295,13 @@ def main():
         val_set = list(zip(transpose(dataset['val']['data']/255.), dataset['val']['labels']))
         val_batches = Batches(val_set, args.batch_size, shuffle=False, num_workers=2)
     else:
-        dataset = cifar10(args.data_dir)
+        if args.dataset == "cifar10":
+            print("Using CIFAR-10 dataset...")
+            dataset = cifar10(args.data_dir)
+        else:
+            print("Using CIFAR-100 dataset...")
+            assert args.dataset == "cifar100"
+            dataset = cifar100(args.data_dir)
     train_set = list(zip(transpose(pad(dataset['train']['data'], 4)/255.),
         dataset['train']['labels']))
     if args.use_corrupted_probe:
@@ -312,7 +320,11 @@ def main():
     current_iter = 0
     current_loss_thresh = None
     num_classes = len(np.unique(dataset['train']['labels']))
-    assert num_classes == 10, "CIFAR-10 should have 10 classes"
+    if args.dataset == "cifar10":
+        assert num_classes == 10, "CIFAR-10 should have 10 classes"
+    else:
+        assert args.dataset == "cifar100"
+        assert num_classes == 100, "CIFAR-100 should have 100 classes"
     train_batches_probe = None
     
     if args.use_probes:
@@ -373,8 +385,9 @@ def main():
     epsilon = (args.epsilon / 255.)
     pgd_alpha = (args.pgd_alpha / 255.)
 
+    assert args.model == 'PreActResNet18'
     if args.model == 'PreActResNet18':
-        model = PreActResNet18()
+        model = PreActResNet18(num_classes=num_classes)
     elif args.model == 'WideResNet':
         model = WideResNet(34, 10, widen_factor=args.width_factor, dropRate=0.0)
     else:
